@@ -80,6 +80,7 @@ cp "$LIBCUBRIDCS" "$PACKAGE_DIR/lib/libcubridcs.so.11.4"
 cp "$LIBCASCCI" "$PACKAGE_DIR/lib/libcascci.so.11.2"
 
 chmod 755 "$PACKAGE_DIR/cdc_test_helper" "$PACKAGE_DIR/install.sh" "$PACKAGE_DIR/lib/"*.so.*
+chmod 755 "$PACKAGE_DIR" "$PACKAGE_DIR/lib"
 chmod 600 "$PACKAGE_DIR/cdc_test_helper.conf"
 chmod 644 "$PACKAGE_DIR/README.md" "$PACKAGE_DIR/LICENSE"
 
@@ -105,6 +106,7 @@ tar --owner=0 --group=0 --numeric-owner -C "$STAGING_ROOT" -czf "$ARCHIVE_PATH" 
   cd "$OUTPUT_DIR"
   sha256sum "$(basename "$ARCHIVE_PATH")" >"$(basename "$ARCHIVE_PATH").sha256"
 )
+chmod 644 "$ARCHIVE_PATH" "$ARCHIVE_PATH.sha256"
 
 echo "[OK] 바이너리 패키지 생성 완료"
 echo "[OK] 패키지: $ARCHIVE_PATH"
