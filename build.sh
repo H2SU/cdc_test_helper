@@ -52,18 +52,27 @@ elif ! compgen -G "$CCI_LIB_DIR/libcascci.so*" >/dev/null; then
 fi
 
 CC=${CC:-gcc}
+BINARY_RPATH=${CDC_TEST_HELPER_RPATH:-"$LIB_DIR:$CCI_LIB_DIR"}
 
-"$CC" \
-  -g \
-  -I"$INCLUDE_DIR" \
-  "$SCRIPT_DIR/cdc_test_helper.c" \
-  -L"$LIB_DIR" \
-  -L"$CCI_LIB_DIR" \
-  -Wl,-rpath,"$LIB_DIR" \
-  -Wl,-rpath,"$CCI_LIB_DIR" \
-  -lcubridcs \
-  -lcascci \
-  -o "$SCRIPT_DIR/cdc_test_helper"
+if [[ "${CDC_TEST_HELPER_RELEASE_BUILD:-0}" == "1" ]]; then
+  BUILD_FLAGS=(-O2)
+else
+  BUILD_FLAGS=(-g)
+fi
+
+(
+  cd "$SCRIPT_DIR"
+  "$CC" \
+    "${BUILD_FLAGS[@]}" \
+    -I"$INCLUDE_DIR" \
+    cdc_test_helper.c \
+    -L"$LIB_DIR" \
+    -L"$CCI_LIB_DIR" \
+    -Wl,-rpath,"$BINARY_RPATH" \
+    -lcubridcs \
+    -lcascci \
+    -o cdc_test_helper
+)
 
 echo "[OK] 빌드 완료: $SCRIPT_DIR/cdc_test_helper"
 echo "[OK] 사용한 CUBRID 경로: $CUBRID_HOME"

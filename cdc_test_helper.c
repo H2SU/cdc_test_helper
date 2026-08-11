@@ -14,6 +14,9 @@
 #define NO_ERROR (0)
 #define YES_ERROR (-1)
 
+#define MAX_EXTRACTION_TABLE_COUNT (100)
+#define MAX_EXTRACTION_USER_COUNT (100)
+
 #define PRINT_ERRMSG_GOTO_ERR(error_code) printf ("[ERROR] error_code: %d at %s ():%d\n", error_code, __func__, __LINE__); goto error
 
 enum
@@ -95,13 +98,13 @@ struct helper_global
   long long max_log_items;
   int output_log_type;
 
-  char *extraction_table_name[100];
+  char *extraction_table_name[MAX_EXTRACTION_TABLE_COUNT];
   int extraction_table_name_count;
 
-  uint64_t extraction_class_oid[100];
+  uint64_t extraction_class_oid[MAX_EXTRACTION_TABLE_COUNT];
   int extraction_class_oid_count;
 
-  char *extraction_user_name[100];
+  char *extraction_user_name[MAX_EXTRACTION_USER_COUNT];
   int extraction_user_name_count;
 
   char *trace_path;
@@ -170,6 +173,8 @@ struct tran_table_global
 HELPER_GLOBAL helper_Gl;
 CLASS_INFO_GLOBAL class_info_Gl;
 TRAN_TABLE_GLOBAL tran_table_Gl;
+
+char *trim_whitespace (char *value);
 
 void
 init_helper_global (void)
@@ -342,83 +347,78 @@ parse_positive_long_long (const char *value, long long *result)
 }
 
 int
-make_extraction_table_list (char *table_list)
+clear_extraction_name_list (char **names, int *name_count)
 {
-  char *s, *n;
-
-  s = n = table_list;
-
-  for (int i = 0; i < 100; i++)
+  for (int i = 0; i < *name_count; i++)
     {
-      while (*n != ',' && *n != '\0')
-	{
-	  n++;
-	}
-
-      if (*n == ',')
-	{
-	  *n = '\0';
-	  n++;
-
-	  helper_Gl.extraction_table_name[i] = strdup (s);
-	  helper_Gl.extraction_table_name_count++;
-
-	  s = n;
-	}
-      else if (*n == '\0')
-	{
-	  helper_Gl.extraction_table_name[i] = strdup (s);
-	  helper_Gl.extraction_table_name_count++;
-
-	  break;
-	}
-      else
-	{
-	  assert (0);
-	}
+      free (names[i]);
+      names[i] = NULL;
     }
+  *name_count = 0;
 
   return NO_ERROR;
 }
 
 int
-make_extraction_user_list (char *user_list)
+make_extraction_name_list (char *name_list, char **names, int *name_count, int max_name_count)
 {
-  char *s, *n;
+  char *current;
 
-  s = n = user_list;
+  clear_extraction_name_list (names, name_count);
 
-  for (int i = 0; i < 100; i++)
+  current = name_list;
+  while (1)
     {
-      while (*n != ',' && *n != '\0')
+      char *separator = strchr (current, ',');
+      char *name;
+
+      if (separator != NULL)
 	{
-	  n++;
+	  *separator = '\0';
 	}
 
-      if (*n == ',')
+      name = trim_whitespace (current);
+      if (name[0] == '\0' || *name_count >= max_name_count)
 	{
-	  *n = '\0';
-	  n++;
-
-	  helper_Gl.extraction_user_name[i] = strdup (s);
-	  helper_Gl.extraction_user_name_count++;
-
-	  s = n;
+	  goto error;
 	}
-      else if (*n == '\0')
-	{
-	  helper_Gl.extraction_user_name[i] = strdup (s);
-	  helper_Gl.extraction_user_name_count++;
 
+      names[*name_count] = strdup (name);
+      if (names[*name_count] == NULL)
+	{
+	  goto error;
+	}
+      (*name_count)++;
+
+      if (separator == NULL)
+	{
 	  break;
 	}
-      else
-	{
-	  assert (0);
-	}
+
+      current = separator + 1;
     }
 
   return NO_ERROR;
+
+error:
+
+  clear_extraction_name_list (names, name_count);
+
+  return YES_ERROR;
+}
+
+int
+make_extraction_table_list (char *table_list)
+{
+  return make_extraction_name_list (table_list, helper_Gl.extraction_table_name,
+				    &helper_Gl.extraction_table_name_count, MAX_EXTRACTION_TABLE_COUNT);
+}
+
+int
+make_extraction_user_list (char *user_list)
+{
+  return make_extraction_name_list (user_list, helper_Gl.extraction_user_name,
+				    &helper_Gl.extraction_user_name_count, MAX_EXTRACTION_USER_COUNT);
 }
 
 int
@@ -587,7 +587,11 @@ set_config_value (const char *key, char *value)
     }
   else if (strcmp (key, "extraction_users") == 0)
     {
-      if (value[0] != '\0' && make_extraction_user_list (value) != NO_ERROR)
+      if (value[0] == '\0')
+	{
+	  clear_extraction_name_list (helper_Gl.extraction_user_name, &helper_Gl.extraction_user_name_count);
+	}
+      else if (make_extraction_user_list (value) != NO_ERROR)
 	{
 	  return YES_ERROR;
 	}
@@ -774,12 +778,6 @@ process_command_line_option (int argc, char *argv[])
   init_helper_global ();
   init_class_info_global ();
   init_tran_table_global ();
-
-  if (argc == 1)
-    {
-      print_usages ();
-      exit (0);
-    }
 
   for (int i = 1; i < argc; i++)
     {
@@ -1323,10 +1321,55 @@ make_extraction_class_oid_list (void)
   return NO_ERROR;
 }
 
+char *
+escape_sql_string_literal (const char *value)
+{
+  size_t value_length = strlen (value);
+  size_t quote_count = 0;
+  char *escaped_value;
+  char *write_position;
+
+  for (const char *read_position = value; *read_position != '\0'; read_position++)
+    {
+      if (*read_position == '\'')
+	{
+	  quote_count++;
+	}
+    }
+
+  if (value_length > SIZE_MAX - quote_count - 1)
+    {
+      return NULL;
+    }
+
+  escaped_value = malloc (value_length + quote_count + 1);
+  if (escaped_value == NULL)
+    {
+      return NULL;
+    }
+
+  write_position = escaped_value;
+  for (const char *read_position = value; *read_position != '\0'; read_position++)
+    {
+      *write_position++ = *read_position;
+      if (*read_position == '\'')
+	{
+	  *write_position++ = '\'';
+	}
+    }
+  *write_position = '\0';
+
+  return escaped_value;
+}
+
 int
 fetch_all_schema_info (void)
 {
-  char sql_buf[10000] = { '\0', };
+  const char *query_prefix = "select class_of, class_name from _db_class where (";
+  const char *query_suffix = ") and is_system_class != 1";
+  char *sql_buf = NULL;
+  size_t sql_buf_size = 0;
+  size_t sql_length = 0;
   int error_code;
 
   if (helper_Gl.extraction_table_name_count == 0)
@@ -1339,20 +1382,54 @@ fetch_all_schema_info (void)
     }
   else
     {
-      strcat (sql_buf, "select class_of, class_name from _db_class where (");
+      sql_buf_size = strlen (query_prefix) + strlen (query_suffix) + 1;
 
       for (int i = 0; i < helper_Gl.extraction_table_name_count; i++)
 	{
-	  sprintf (sql_buf + strlen (sql_buf), "class_name = \'%s\'", helper_Gl.extraction_table_name[i]);
+	  size_t table_name_length;
 
-	  if (i != helper_Gl.extraction_table_name_count - 1)
+	  if (helper_Gl.extraction_table_name[i] == NULL)
 	    {
-	      strcat (sql_buf, " or ");
+	      goto error;
 	    }
-	  else
+
+	  table_name_length = strlen (helper_Gl.extraction_table_name[i]);
+	  if (sql_buf_size > SIZE_MAX - 32 || table_name_length > (SIZE_MAX - sql_buf_size - 32) / 2)
 	    {
-	      strcat (sql_buf, ") and is_system_class != 1");
+	      goto error;
 	    }
+
+	  sql_buf_size += table_name_length * 2 + 32;
+	}
+
+      sql_buf = malloc (sql_buf_size);
+      if (sql_buf == NULL)
+	{
+	  goto error;
+	}
+
+      sql_length = (size_t) snprintf (sql_buf, sql_buf_size, "%s", query_prefix);
+
+      for (int i = 0; i < helper_Gl.extraction_table_name_count; i++)
+	{
+	  char *escaped_table_name = escape_sql_string_literal (helper_Gl.extraction_table_name[i]);
+	  int written_length;
+
+	  if (escaped_table_name == NULL)
+	    {
+	      goto error;
+	    }
+
+	  written_length = snprintf (sql_buf + sql_length, sql_buf_size - sql_length, "class_name = '%s'%s",
+			     escaped_table_name,
+			     i == helper_Gl.extraction_table_name_count - 1 ? query_suffix : " or ");
+	  free (escaped_table_name);
+
+	  if (written_length < 0 || (size_t) written_length >= sql_buf_size - sql_length)
+	    {
+	      goto error;
+	    }
+	  sql_length += (size_t) written_length;
 	}
 
 #if 0
@@ -1365,6 +1442,15 @@ fetch_all_schema_info (void)
 	  PRINT_ERRMSG_GOTO_ERR (error_code);
 	}
 
+      free (sql_buf);
+      sql_buf = NULL;
+
+      if (class_info_Gl.class_info_count != helper_Gl.extraction_table_name_count)
+	{
+	  printf ("[ERROR] One or more requested tables do not exist in the current schema.\n");
+	  goto error;
+	}
+
       error_code = make_extraction_class_oid_list ();
       if (error_code != NO_ERROR)
 	{
@@ -1375,6 +1461,8 @@ fetch_all_schema_info (void)
   return NO_ERROR;
 
 error:
+
+  free (sql_buf);
 
   return YES_ERROR;
 }
@@ -3536,6 +3624,7 @@ extract_log (void)
 
   long long output_log_item_count = 0;
   int extraction_complete = 0;
+  int is_connected = 0;
 
   int64_t extract_pageid;
   short extract_offset;
@@ -3617,6 +3706,7 @@ extract_log (void)
     {
       PRINT_ERRMSG_GOTO_ERR (error_code);
     }
+  is_connected = 1;
 
   if (helper_Gl.start_lsa_set)
     {
@@ -3731,10 +3821,13 @@ extract_log (void)
 	    log_item = log_item->next;
 	  }
 
-	error_code = cubrid_log_clear_log_item (log_item_list);
-	if (error_code != CUBRID_LOG_SUCCESS)
+	if (log_item_list != NULL)
 	  {
-	    PRINT_ERRMSG_GOTO_ERR (error_code);
+	    error_code = cubrid_log_clear_log_item (log_item_list);
+	    if (error_code != CUBRID_LOG_SUCCESS)
+	      {
+		PRINT_ERRMSG_GOTO_ERR (error_code);
+	      }
 	  }
 
 	if (extraction_complete)
@@ -3744,13 +3837,49 @@ extract_log (void)
       }
   }
 
+  error_code = cubrid_log_finalize ();
+  is_connected = 0;
+  if (error_code != CUBRID_LOG_SUCCESS)
+    {
+      PRINT_ERRMSG_GOTO_ERR (error_code);
+    }
+
   printf ("[CDC_DONE] output_log_items=%lld\n", output_log_item_count);
 
   return NO_ERROR;
 
 error:
 
+  if (is_connected)
+    {
+      (void) cubrid_log_finalize ();
+    }
+
   return YES_ERROR;
+}
+
+void
+disconnect_cci_connections (void)
+{
+  T_CCI_ERROR err_buf;
+
+  if (helper_Gl.cci_conn_handle >= 0)
+    {
+      if (cci_disconnect (helper_Gl.cci_conn_handle, &err_buf) < 0)
+	{
+	  printf ("[ERROR] Failed to disconnect schema CCI connection: %s\n", err_buf.err_msg);
+	}
+      helper_Gl.cci_conn_handle = -1;
+    }
+
+  if (helper_Gl.target_conn_handle >= 0)
+    {
+      if (cci_disconnect (helper_Gl.target_conn_handle, &err_buf) < 0)
+	{
+	  printf ("[ERROR] Failed to disconnect target CCI connection: %s\n", err_buf.err_msg);
+	}
+      helper_Gl.target_conn_handle = -1;
+    }
 }
 
 int
@@ -3780,9 +3909,13 @@ main (int argc, char *argv[])
       PRINT_ERRMSG_GOTO_ERR (error_code);
     }
 
+  disconnect_cci_connections ();
+
   return NO_ERROR;
 
 error:
+
+  disconnect_cci_connections ();
 
   return YES_ERROR;
 }

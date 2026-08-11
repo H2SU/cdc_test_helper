@@ -14,34 +14,13 @@
 
 ## 1. 사전 조건
 
-### 1.1 CUBRID 설치
+### 1.1 실행 환경
 
-CUBRID 소스코드는 필요하지 않습니다. 다음 헤더와 라이브러리가 포함된 CUBRID 설치본이 필요합니다.
+배포용 압축 파일에는 실행 바이너리와 CUBRID 11.4.5 CDC/CCI 클라이언트 라이브러리가 포함되어 있습니다. 사용자는
+CUBRID 소스코드를 clone하거나 프로그램을 직접 컴파일할 필요가 없습니다.
 
-```text
-$CUBRID/include/cubrid_log.h
-$CUBRID/include/cas_cci.h
-$CUBRID/lib/libcubridcs.so
-$CUBRID/lib/libcascci.so
-```
-
-일부 설치본에서는 CCI 라이브러리가 다음 위치에 있을 수 있습니다.
-
-```text
-$CUBRID/cci/lib/libcascci.so
-```
-
-여러 CUBRID 버전이 설치되어 있다면 사용할 버전을 명시적으로 지정하는 것이 안전합니다.
-
-```bash
-export CUBRID=/사용할/CUBRID/설치경로
-export PATH="$CUBRID/bin:$PATH"
-```
-
-`CUBRID` 환경변수가 없으면 설치 스크립트가 `PATH`에 등록된 `cubrid` 명령으로 설치 경로를 찾습니다.
-
-설치할 때뿐 아니라 **실행할 때도 추출 대상 DB가 등록된 CUBRID 환경을 적용해야 합니다.** CUBRID 사용자 환경이
-셸 시작 시 자동으로 적용되지 않거나 별도의 DB 등록 디렉터리를 사용하는 경우에는 다음처럼 직접 지정합니다.
+다만 실행할 때는 **추출 대상 DB가 등록된 CUBRID 환경을 적용해야 합니다.** CUBRID 설치 경로는 `/opt/CUBRID`로
+고정되어 있지 않으며 실제 설치 경로를 지정하면 됩니다.
 
 ```bash
 export CUBRID=/사용할/CUBRID/설치경로
@@ -76,11 +55,60 @@ supplemental_log=1
 ### 1.3 필요한 명령
 
 - Linux x86_64
-- `gcc`
 - `bash`
 - 실행 중인 CUBRID 데이터베이스와 브로커
 
-## 2. 설치
+소스에서 직접 빌드하는 경우에만 `gcc`와 CUBRID 11.4.5 헤더 및 라이브러리가 추가로 필요합니다.
+
+## 2. 바이너리 설치
+
+### 2.1 압축 해제 후 바로 실행
+
+전달받은 압축 파일을 해제합니다.
+
+```bash
+tar -xzf cdc_test_helper-*-linux-x86_64.tar.gz
+cd cdc_test_helper-*-linux-x86_64
+```
+
+`cdc_test_helper.conf`의 DB 주소와 포트를 수정한 뒤 바로 실행할 수 있습니다.
+
+```bash
+vi cdc_test_helper.conf
+./cdc_test_helper --help
+./cdc_test_helper -n 10
+```
+
+압축 파일에 포함된 `SHA256SUMS`로 주요 파일이 손상되지 않았는지 확인할 수 있습니다.
+
+```bash
+sha256sum -c SHA256SUMS
+```
+
+### 2.2 사용자 계정에 설치
+
+압축을 해제한 디렉터리에서 설치 스크립트를 실행합니다.
+
+```bash
+./install.sh
+```
+
+설치 위치:
+
+```text
+~/.local/share/cdc_test_helper/
+~/.local/bin/cdc_test_helper
+```
+
+기존 `~/.local/share/cdc_test_helper/cdc_test_helper.conf`가 있으면 덮어쓰지 않습니다.
+
+`~/.local/bin`이 `PATH`에 없다면 다음 내용을 셸 설정 파일에 추가합니다.
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+### 2.3 소스에서 직접 빌드
 
 저장소를 clone합니다.
 
@@ -104,19 +132,11 @@ cd cdc_test_helper
 5. `cdc_test_helper.conf`의 권한을 `600`으로 설정
 6. `~/.local/bin/cdc_test_helper` 링크 생성
 
-`~/.local/bin`이 `PATH`에 없다면 다음 내용을 셸 설정 파일에 추가합니다.
-
-```bash
-export PATH="$HOME/.local/bin:$PATH"
-```
-
 설치 후 도움말을 확인합니다.
 
 ```bash
 cdc_test_helper --help
 ```
-
-### 직접 빌드
 
 설치 링크를 만들지 않고 현재 폴더에 실행 파일만 생성하려면 다음 명령을 사용합니다.
 
@@ -130,7 +150,25 @@ cdc_test_helper --help
 ./cdc_test_helper
 ```
 
-빌드 결과에는 빌드에 사용한 CUBRID 라이브러리 경로가 RUNPATH로 기록됩니다. CUBRID 설치 경로를 이동하거나 다른 버전으로 변경한 경우 다시 빌드해야 합니다.
+직접 빌드한 실행 파일에는 빌드에 사용한 CUBRID 라이브러리 경로가 기록됩니다. CUBRID 설치 경로를 이동하거나
+다른 버전으로 변경한 경우 다시 빌드해야 합니다. 배포용 압축 파일의 바이너리는 동봉된 `lib` 디렉터리를 사용합니다.
+
+### 2.4 배포용 바이너리 패키지 생성
+
+관리자는 다음 명령으로 실행 바이너리, 설정 파일, 클라이언트 라이브러리, 설치 스크립트를 하나의 압축 파일로
+생성할 수 있습니다.
+
+```bash
+export CUBRID=/CUBRID/11.4.5/설치경로
+./package.sh /패키지/출력경로
+```
+
+생성 파일:
+
+```text
+cdc_test_helper-<커밋>-linux-x86_64.tar.gz
+cdc_test_helper-<커밋>-linux-x86_64.tar.gz.sha256
+```
 
 ## 3. 설정 파일
 
@@ -140,7 +178,9 @@ cdc_test_helper --help
 cdc_test_helper/
 ├── cdc_test_helper
 ├── cdc_test_helper.conf
-├── build.sh
+├── lib/
+│   ├── libcubridcs.so.11.4
+│   └── libcascci.so.11.2
 ├── install.sh
 └── README.md
 ```

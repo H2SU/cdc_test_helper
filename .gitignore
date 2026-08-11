@@ -1,6 +1,8 @@
 cdc_test_helper
 cci_debug.log
 csql.err
+csql.access
 tracelog/
 core.*
 *.c~
+dist/
